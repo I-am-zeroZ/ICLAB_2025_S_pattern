@@ -162,6 +162,7 @@ begin
         end
     end
     in_valid=1'b0;
+    in_data='x;
     repeat(3+(patcount)%3)@(negedge clk);
     in_valid2=1'b1;
     for(int i=0;i<8;i++)begin
