@@ -7,7 +7,7 @@
 // Welcome to open an issue or even a pull request if you find any bugs or have suggestions.
 /**************************************************************************/
 `define CYCLE_TIME 20.0
-`define PATTERN_NUMBER 100
+`define PATTERN_NUMBER 10
 module PATTERN(
     clk,
     rst_n,
@@ -27,12 +27,13 @@ input out_sad;
 //======================================
 integer total_latency;
 integer patcount;
+integer setcount;
 reg [7:0] L0[0:127][0:127];
 reg [7:0] L1[0:127][0:127];
-reg [7:0] MVinteger_point1[0:3];  
-reg [3:0] MVfraction_point1[0:3];
-reg [7:0] MVinteger_point2[0:3];  
-reg [3:0] MVfraction_point2[0:3];
+reg [7:0] MVinteger_point1[0:63][0:3];  
+reg [3:0] MVfraction_point1[0:63][0:3];
+reg [7:0] MVinteger_point2[0:63][0:3];  
+reg [3:0] MVfraction_point2[0:63][0:3];
 reg [15:0] L0_BI_block_result_point1 [0:8][0:7][0:7];
 reg [15:0] L1_BI_block_result_point1 [0:8][0:7][0:7];
 reg [15:0] L0_BI_block_result_point2 [0:8][0:7][0:7];
@@ -56,15 +57,20 @@ initial begin
     in_valid = 1'b0;
     in_valid2 = 1'b0;
     in_data='x;
+    rst_n = 1'b1;
     force clk = 0;
     reset_signal_task;
     for(patcount = 0; patcount < `PATTERN_NUMBER; patcount = patcount + 1) begin
         $display("Pattern %d", patcount);
-        generate_testcase;
-        calculate_ans;
-        input_task;
-        wait_out_valid_task;
-        check_ans_task;
+        generate_testcase; 
+        input_task_1;
+        @(negedge clk);
+        for (setcount = 0; setcount < 64; setcount = setcount + 1) begin
+          calculate_ans;
+          input_task_2;
+          wait_out_valid_task;
+          check_ans_task;
+        end
     end
     display_pass;
     $finish;
@@ -106,29 +112,30 @@ task generate_testcase;begin
             L1[i][j] = $urandom()%256;
         end
     end
-    //MV point1
-    for(int i=0;i<4;i++)begin
-        MVinteger_point1[i] = $urandom()%118; //[0,117]
-        MVfraction_point1[i] = $urandom()%16; //0~15 (4bit)
-    end
-    //MV point2
-
-    for(int i=0;i<4;i++)begin
-        offset = $urandom()%11-5; //[0,10]-5= [-5,5]
-        temp = $signed(MVinteger_point1[i]) + offset;
-        if(temp < 0)
-            temp = 0;
-        else if(temp > 117)
-            temp = 117;
-        MVinteger_point2[i] = temp;
-        MVfraction_point2[i] = $urandom()%16; //0~15 (4bit)  
+    for (int j=0;j<64;j++) begin
+      //MV point1
+      for(int i=0;i<4;i++)begin
+          MVinteger_point1[j][i] = $urandom()%118; //[0,117]
+          MVfraction_point1[j][i] = $urandom()%16; //0~15 (4bit)
+      end
+      //MV point2
+      for(int i=0;i<4;i++)begin
+          offset = $urandom()%11-5; //[0,10]-5= [-5,5]
+          temp = $signed(MVinteger_point1[j][i]) + offset;
+          if(temp < 0)
+              temp = 0;
+          else if(temp > 117)
+              temp = 117;
+          MVinteger_point2[j][i] = temp;
+          MVfraction_point2[j][i] = $urandom()%16; //0~15 (4bit)  
+      end
     end
 end
 endtask
 
-task input_task; 
+task input_task_1; 
 begin 
-    repeat(3+(patcount)%3)@(negedge clk);
+    repeat($urandom_range(3,6)-1)@(negedge clk);
     in_valid=1'b1;
     in_valid2=1'b0;
     for(int i=0;i<128;i++)begin
@@ -163,7 +170,13 @@ begin
     end
     in_valid=1'b0;
     in_data='x;
-    repeat(3+(patcount)%3)@(negedge clk);
+end
+endtask
+
+task input_task_2; 
+begin 
+    in_valid=1'b0;
+    repeat($urandom_range(3,6)-1)@(negedge clk);
     in_valid2=1'b1;
     for(int i=0;i<8;i++)begin
         if(out_valid===1'b1||out_sad!==0)begin
@@ -176,10 +189,10 @@ begin
             $finish;
         end
         if(i<4)begin
-            in_data={MVinteger_point1[i],MVfraction_point1[i]};
+            in_data={MVinteger_point1[setcount][i],MVfraction_point1[setcount][i]};
         end
         else begin
-           in_data={MVinteger_point2[i-4],MVfraction_point2[i-4]}; 
+           in_data={MVinteger_point2[setcount][i-4],MVfraction_point2[setcount][i-4]}; 
         end
         @(negedge clk);
     end
@@ -257,19 +270,20 @@ task calculate_ans;
     for(s = 0; s < 9; s = s + 1) begin
       // L0 (point1) BI 區塊
       calculate_BI(L0,
-                   MVinteger_point1[0] + L0_dx[s],
-                   MVfraction_point1[0],
-                   MVinteger_point1[1] + L0_dy[s],
-                   MVfraction_point1[1],
+                   MVinteger_point1[setcount][0] + L0_dx[s],
+                   MVfraction_point1[setcount][0],
+                   MVinteger_point1[setcount][1] + L0_dy[s],
+                   MVfraction_point1[setcount][1],
                    real_L0_BI_block_result_point1[s]);
                    
       // L1 (point1) BI 區塊
       calculate_BI(L1,
-                   MVinteger_point1[2] + L1_dx[s],
-                   MVfraction_point1[2],
-                   MVinteger_point1[3] + L1_dy[s],
-                   MVfraction_point1[3],
+                   MVinteger_point1[setcount][2] + L1_dx[s],
+                   MVfraction_point1[setcount][2],
+                   MVinteger_point1[setcount][3] + L1_dy[s],
+                   MVfraction_point1[setcount][3],
                    real_L1_BI_block_result_point1[s]);
+      calculate_sad();
     end
     
     // ====================================================
@@ -281,19 +295,20 @@ task calculate_ans;
     for(s = 0; s < 9; s = s + 1) begin
       // L0 (point2) BI 區塊
       calculate_BI(L0,
-                   MVinteger_point2[0] + L0_dx[s],
-                   MVfraction_point2[0],
-                   MVinteger_point2[1] + L0_dy[s],
-                   MVfraction_point2[1],
+                   MVinteger_point2[setcount][0] + L0_dx[s],
+                   MVfraction_point2[setcount][0],
+                   MVinteger_point2[setcount][1] + L0_dy[s],
+                   MVfraction_point2[setcount][1],
                    real_L0_BI_block_result_point2[s]);
                    
       // L1 (point2) BI 區塊
       calculate_BI(L1,
-                   MVinteger_point2[2] + L1_dx[s],
-                   MVfraction_point2[2],
-                   MVinteger_point2[3] + L1_dy[s],
-                   MVfraction_point2[3],
+                   MVinteger_point2[setcount][2] + L1_dx[s],
+                   MVfraction_point2[setcount][2],
+                   MVinteger_point2[setcount][3] + L1_dy[s],
+                   MVfraction_point2[setcount][3],
                    real_L1_BI_block_result_point2[s]);
+      calculate_sad();
     end
 
   end
@@ -336,7 +351,7 @@ begin
     $finish;
   end
   else begin
-    $display("CHECK_ANS PASS at time %t : out_sad = %h", $time, out_sad_got);
+    // $display("CHECK_ANS PASS at time %t : out_sad = %h", $time, out_sad_got);
   end
 end
 endtask
@@ -377,21 +392,21 @@ begin
       BI_block[i][j] = B;
     end
   end
-  calculate_sad(saved_min_sad_point1, saved_search_point_point1,
-                saved_min_sad_point2, saved_search_point_point2);
+  // calculate_sad(saved_min_sad_point1, saved_search_point_point1,
+  //               saved_min_sad_point2, saved_search_point_point2);
 
 end
 endtask
 
-real out_min_sad_point1;
-integer out_min_search_point1;
-real out_min_sad_point2;
-integer out_min_search_point2;
+// real out_min_sad_point1;
+// integer out_min_search_point1;
+// real out_min_sad_point2;
+// integer out_min_search_point2;
 task calculate_sad;
-  output real out_min_sad_point1;
-  output integer out_min_search_point1;
-  output real out_min_sad_point2;
-  output integer out_min_search_point2;
+  // output real out_min_sad_point1;
+  // output integer out_min_search_point1;
+  // output real out_min_sad_point2;
+  // output integer out_min_search_point2;
   real sad_point1[0:8];
   real sad_point2[0:8];
   real diff;
@@ -445,18 +460,18 @@ begin
   end
   
   // 將結果以 output 參數輸出，同時更新全域變數
-  out_min_sad_point1 = min_sad1;
-  out_min_search_point1 = min_idx1;
-  out_min_sad_point2 = min_sad2;
-  out_min_search_point2 = min_idx2;
+  // out_min_sad_point1 = min_sad1;
+  // out_min_search_point1 = min_idx1;
+  // out_min_sad_point2 = min_sad2;
+  // out_min_search_point2 = min_idx2;
   
   saved_min_sad_point1 = min_sad1;
   saved_search_point_point1 = min_idx1;
   saved_min_sad_point2 = min_sad2;
   saved_search_point_point2 = min_idx2;
   
-  $display("Point1: min SAD = %f at search point %0d", min_sad1, min_idx1);
-  $display("Point2: min SAD = %f at search point %0d", min_sad2, min_idx2);
+  // $display("Point1: min SAD = %f at search point %0d", min_sad1, min_idx1);
+  // $display("Point2: min SAD = %f at search point %0d", min_sad2, min_idx2);
 end
 endtask
 
